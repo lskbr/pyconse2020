@@ -1,0 +1,130 @@
+service: pyconse2020
+frameworkVersion: '2'
+provider:
+  name: aws
+  runtime: python3.8
+  region: eu-west-1
+  apiGateway:
+    shouldStartNameWithService: true
+
+functions:
+  hello:
+    handler: hello.handler
+    events:
+      - http:
+          path: pyconse2020/hello
+          method: get
+
+  showip:
+    handler: showip.handler
+    events:
+      - http:
+          path: pyconse2020/showip
+          method: get
+    package:  
+      include:
+        - templates/**
+    layers:
+      - { Ref: PythonRequirementsLambdaLayer }      
+
+  createURL:
+    handler: urlshortner.create
+    events:
+      - http:
+          path: pyconse2020/url
+          method: get
+      - http:
+          path: pyconse2020/url
+          method: post
+    package:  
+      include:
+        - templates/**
+    role: dynamoURL
+    layers:
+      - { Ref: PythonRequirementsLambdaLayer }
+
+  useURL:
+    handler: urlshortner.use
+    events:
+      - http:
+          path: pyconse2020/url/{short_key}
+          method: get      
+    package:  
+      include:
+        - templates/**
+    role: dynamoURL
+    layers:
+      - { Ref: PythonRequirementsLambdaLayer }
+
+plugins:
+  - serverless-python-requirements
+
+custom:
+  pythonRequirements:
+    layer: true  
+
+package:
+  exclude:
+    - .mypy_cache/**
+    - __pycache__/**
+    - package.json
+    - package-lock.json
+
+resources:
+  Resources:
+    urlsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: urlsTable
+        AttributeDefinitions:
+          - AttributeName: short_key
+            AttributeType: S
+        KeySchema:
+          - AttributeName: short_key
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST 
+        TimeToLiveSpecification: 
+          AttributeName: ttl
+          Enabled: true
+
+    dynamoURL:
+      Type: AWS::IAM::Role
+      Properties:
+        Path: /pyconse/dynamourl/
+        RoleName: PyConSEDynamoURL
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+              Action: sts:AssumeRole
+        Policies:
+          - PolicyName: DBURLAccess
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - logs:CreateLogGroup
+                    - logs:CreateLogStream
+                    - logs:PutLogEvents
+                  Resource:
+                    - 'Fn::Join':
+                      - ':'
+                      -
+                        - 'arn:aws:logs'
+                        - Ref: 'AWS::Region'
+                        - Ref: 'AWS::AccountId'
+                        - 'log-group:/aws/lambda/*:*:*'
+                - Effect: Allow
+                  Action:
+                    - dynamodb:GetItem
+                    - dynamodb:Query
+                    - dynamodb:UpdateItem
+                    - dynamodb:DescribeTable
+                    - dynamodb:DescribeTimeToLive
+                    - dynamodb:PutItem
+                  Resource: 
+                    - Fn::GetAtt: [urlsTable, Arn]
